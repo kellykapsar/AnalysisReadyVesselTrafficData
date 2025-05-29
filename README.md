@@ -4,11 +4,15 @@
 
 This repository contains code to convert monthly shapefiles of vessel tracklines produced in the [AIS_Processing](https://github.com/ArcticTelecouplingProject/AIS_Processing) repository into analysis-ready outputs for use in projects related to the [Arctic Telecoupling Project](https://arctictelecoupling.org). For more information on the data acquisition, cleaning, and processing that was used to generate the data input into this codebase, please refer to the [AIS_Processing](https://github.com/ArcticTelecouplingProject/AIS_Processing) repository. 
 
+## Workflow 
+
+![](./Images/analysis_ready_data_workflow.png)
+
 ### Metacoupling Analysis 
 
 A key function of this repository is to categorize annual vessel movements into specific [metacoupling](https://www.canr.msu.edu/telecoupling/metacoupling/) types based on the patterns of their movement in relation to the study area and broader Pacific Arctic Region (Figure 1). 
 
-![](../Images/metacoupling_logic_tree.png)
+![](./Images/metacoupling_logic_tree.png)
 
 Once categorized, vessel activities are summarized in a variety of ways in order to serve as inputs into social, economic, and ecological analyses (see list below). Keeping the data integrated along the same analytical pipeline for as long as possible will help to enable interpretation across analyses that would otherwise be challenged due to differences in the assumptions behind various processing steps associated with individualized analytical pipelines. 
 
