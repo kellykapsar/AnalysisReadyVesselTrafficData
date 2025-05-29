@@ -50,3 +50,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Folders for analysis (too big for GitHub)
+/Data_Processed
+/Data_Raw
+/Images
