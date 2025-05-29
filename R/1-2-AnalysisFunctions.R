@@ -25,7 +25,7 @@
 #' @examples
 #' # Example usage
 #' voyage_analysis_master("Tanker", "path/to/data", "path/to/save", study_area_sf, ais_bounds_sf, gates_sf, places_sf)
-voyage_analysis_master <- function(vessel_type, dsn, savedsn, study, aisbounds, gates, places, monthly_output = FALSE, chunks = FALSE) {
+metacoupling_and_place_visits_analysis <- function(vessel_type, dsn, savedsn, study, aisbounds, gates, places, monthly_output = FALSE, chunks = FALSE) {
   print(paste0("BEGIN PROCESSING: ", vessel_type))
   
   # Step 1: Load vessel shapefiles
@@ -42,39 +42,24 @@ voyage_analysis_master <- function(vessel_type, dsn, savedsn, study, aisbounds, 
   tracklines <- identify_stops(tracklines, places)
   print(paste0(vessel_type, ": step 3 complete"))
   
+  
+  
   # Step 6: Summarize voyages by vessel and year and classify metacoupling type
   vessel_summary <- summarize_voyages(tracklines, places, study) %>% 
     classify_meta_type()
+  
+  write.csv(vessel_summary, paste0("../Data_Processed/Vessel_Summaries/vessel_summaries", vessel_type, ".csv"))
+  
   print(paste0(vessel_type, ": step 4 complete"))
   
-  
-  # write.csv(vessel_summary, paste0("../Data_Processed/vessel_summaries", vessel_type, ".csv"))
+  # Step 8: Clean up tracklines for writing shapefile
+  tracklines_clean <- clean_tracklines_for_output(tracklines, vessel_summary, places, study)
+  print(paste0(vessel_type, ": step 8 complete"))
 
-  # Filter to include only vessels that stop in one ofthe Econ locations in a given year
-  econ_keys <- vessel_summary %>%
-    filter(stop_econ == TRUE) %>%
-    distinct(year, scrmblm)
+  # Step 9: Write output files (CSV and shapefiles)
+  write_output_files(tracklines_clean, savedsn, vessel_type, monthly_output, chunks)
+  print(paste0(vessel_type, ": COMPLETE"))
   
-  econ_tracklines <- tracklines %>%
-    mutate(year = lubridate::year(Tm_Strt)) %>% 
-    semi_join(econ_keys, by = c("year", "scrmblm"))
-  
-  econ_summaries <- vessel_summary %>% 
-    filter(stop_econ == TRUE) 
-  
-  vessel_history_econ <- create_place_visits_df(econ_tracklines)
-  
-  write.csv(vessel_summary, paste0("../Data_Processed/Econ/vessel_summaries_econ_", vessel_type, ".csv"))
-  write.csv(vessel_history_econ, paste0("../Data_Processed/Econ/vessel_histories_econ_", vessel_type, ".csv"))
-  print(paste0(vessel_type, ": step 5 complete"))
-  
-  # # Step 8: Clean up tracklines for writing shapefile 
-  # tracklines_clean <- clean_tracklines_for_output(tracklines, vessel_summary, places, study)
-  # print(paste0(vessel_type, ": step 8 complete"))
-  # 
-  # # Step 9: Write output files (CSV and shapefiles)
-  # write_output_files(tracklines_clean, savedsn, vessel_type, monthly_output, chunks)
-  # print(paste0(vessel_type, ": COMPLETE"))
 }
 
 
@@ -473,17 +458,17 @@ clean_tracklines_for_output <- function(tracklines, vessel_summary, places, stud
       stop_npac = rowSums(across(all_of(npac), ~ .)) > 0,
       stop_npac_hub = rowSums(across(all_of(npac_hub), ~ .)) > 0,
       stop_berstr = rowSums(across(all_of(bs_places), ~ .)) > 0
-    ) %>% 
-    dplyr::select(
-      newsegd, scrmblm, year, month, tm_strt, tim_end, 
-      sog_mdn, sog_men, ship_type, ship_code, flag_country, destntn, 
-      stppd_s, npoints, x_first, y_first, 
-      x_last, y_last, dst_dst, dst_cnt, dst_stt, 
-      orgn_or, orgn_cn, orgn_st, dst_typ, dst_cnf, lngth_k, 
-      berstr, berstr_only, usa_only, rus_only, 
-      usas, usan, russ, rusn, 
-      stop_npac, stop_npac_hub, stop_berstr
-    )
+    ) # %>% 
+    # dplyr::select(
+    #   newsegd, scrmblm, year, month, tm_strt, tim_end, 
+    #   sog_mdn, sog_men, ship_type, ship_code, flag_country, destntn, 
+    #   stppd_s, npoints, x_first, y_first, 
+    #   x_last, y_last, dst_dst, dst_cnt, dst_stt, 
+    #   orgn_or, orgn_cn, orgn_st, dst_typ, dst_cnf, lngth_k, 
+    #   berstr, berstr_only, usa_only, rus_only, 
+    #   usas, usan, russ, rusn, 
+    #   stop_npac, stop_npac_hub, stop_berstr
+    # )
   
   vs <- vessel_summary %>% select(scrmblm, year, meta_type)
   
@@ -510,10 +495,10 @@ write_output_files <- function(tracklines, savedsn, vessel_type, monthly_output 
     if (chunks) {
       metalines <- split(tracklines, ceiling(seq_along(tracklines$newsegd) / round(length(tracklines$newsegd) / 3)))
       for (i in seq_along(metalines)) {
-        st_write(metalines[[i]], paste0(savedsn, "VesselLines_BS_", vessel_type, "_part_", i, ".shp"))
+        st_write(metalines[[i]], paste0(savedsn, "VesselLines_", vessel_type, "_part_", i, ".gpkg"), layer = "tracklines", delete_layer = TRUE)
       }
     } else {
-      st_write(tracklines, paste0(savedsn, "VesselLines_BS_", vessel_type, ".shp"))
+      st_write(tracklines, paste0(savedsn, "VesselLines_", vessel_type, ".gpkg"), layer = "tracklines", delete_layer = TRUE)
     }
   }
   if(monthly_output == TRUE){
@@ -529,79 +514,174 @@ write_output_files <- function(tracklines, savedsn, vessel_type, monthly_output 
         filter(year == this_year, month == this_month, ship_type == this_type)
       
       if (nrow(subset_data) > 0) {
-        filename <-  paste0(savedsn, sprintf("VesselLines_BS_%s_%s_%s.gpkg", this_year, this_month, this_type))
+        filename <-  paste0(savedsn, sprintf("VesselLines_%s_%s_%s.gpkg", this_year, this_month, this_type))
         st_write(subset_data, filename, layer = "tracklines", delete_layer = TRUE)
       }
     }
   }
 }
+
+##############################################################################
+########################### ECON SUMMARY FUNCTIONS ########################### 
+##############################################################################
+
+summarize_output_econ <- function(tracklines, vessel_summary){
+  # Filter to include only vessels that stop in one of the Econ locations in a given year
+  econ_keys <- vessel_summary %>%
+    filter(stop_econ == TRUE) %>%
+    distinct(year, scrmblm)
+  
+  econ_tracklines <- tracklines %>%
+    mutate(year = lubridate::year(Tm_Strt)) %>% 
+    semi_join(econ_keys, by = c("year", "scrmblm"))
+  
+  econ_summaries <- vessel_summary %>% 
+    filter(stop_econ == TRUE) 
+  
+  vessel_history_econ <- create_place_visits_df(econ_tracklines)
+  
+  write.csv(vessel_summary, paste0("../Data_Processed/Econ/vessel_summaries_econ_", vessel_type, ".csv"))
+  write.csv(vessel_history_econ, paste0("../Data_Processed/Econ/vessel_histories_econ_", vessel_type, ".csv"))
+  
+  print(paste0(vessel_type, ": history and summary saved."))
+}
+
 ##############################################################################
 ########################### RASTERIZATION FUNCTION ########################### 
 ##############################################################################
 
+#' Create AIS Raster from Vector Files
+#'
+#' Converts a list of AIS geopackage file paths to a raster with masking and unit conversion.
+#'
+#' @param files A character vector of file paths to read and convert to raster.
+#' @param cellsize Numeric value for raster resolution (in meters).
+#' @param ais_mask A `terra` raster object used as the initial mask.
+#' @param land_mask A `terra` raster object used to mask out land areas.
+#' @param output_name A character string for the output raster filename (including path).
+#' @param layer_name A character string for the raster layer name.
+#'
+#' @return Writes the resulting raster to disk.
+#' @export
+make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+  moSHP <- as(ships, "Spatial")
+  moPSP <- as.psp(moSHP)
+  
+  extentAOI <- as.owin(list(xrange = c(-2550000, 550000), yrange = c(235000, 2720000)))
+  allMask <- as.mask(extentAOI, eps = cellsize)
+  moPXL <- pixellate.psp(moPSP, W = allMask)
+  moRAST <- terra::rast(moPXL) / 1000
+  terra::crs(moRAST) <- AA
+  
+  rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
+  rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
+  names(rast_noland) <- layer_name
+  
+  writeRaster(rast_noland, filename = output_name, overwrite=T)
+}
 
-# # Function to create yearly rasters for each vessel type by season 
-# make_ais_raster <- function(df, dsn, savedsn, cellsize, ais_mask){
-#   # Load in all shp files 
-#   filelist <- intersect(list.files(dsn, 
-#                                    pattern= as.character(df$year), 
-#                                    full.names = T),
-#                         list.files(dsn, 
-#                                    pattern = as.character(df$vessel_type), 
-#                                    full.names=T)) 
-#   files <- filelist[grepl(".shp", filelist)]
-#   
-#   
-#   if(df$season == "spring"){
-#     toload <- grep("03-|04-|05-", files, value=T)
-#   }
-#   if(df$season == "summer"){
-#     toload <- grep("06-|07-|08-", files, value=T)
-#   }
-#   if(df$season == "fall"){
-#     toload <- grep("09-|10-|11-", files, value=T)
-#   }
-#   if(df$season == "winter"){
-#     toload <- grep("12-|01-|02-", files, value=T)
-#   }
-#   
-#   ships <- lapply(toload, st_read, quiet=T) %>% do.call(rbind, .)
-#   
-#   moSHP <- as(ships, "Spatial")
-#   
-#   
-#   #convert to spatial lines format - this step takes the longest
-#   moPSP <- as.psp(moSHP)
-#   
-#   #create bounding extent for all area
-#   extentAOI <- as.owin(list(xrange=c(-2550000,550000),yrange=c(235000,2720000)))
-#   
-#   #create mask with pixel size
-#   allMask <- as.mask(extentAOI,eps=cellsize)
-#   
-#   #run pixellate with mask
-#   moPXL <- pixellate.psp(moPSP,W=allMask)
-#   
-#   #render as raster and convert units to km
-#   moRAST <- raster(moPXL)/1000
-#   
-#   cellsize_km <- cellsize/1000
-#   
-#   
-#   rast <- terra::mask(x = moRAST, mask = ais_mask)
-#   
-#   raster::crs(rast) <- AA # NOT WORKING AND IDK WHY... 
-#   
-#   writeRaster(rast, filename = paste0(savedsn, "Raster_", df$vessel_type, "_", df$year, "_", df$season, ".tif"))
-# }
-# 
-# # Call function for each unique combination of ship type, season, and year 
-# for(i in 1:length(df$vessel_type)){
-#   print(df[i,])
-#   make_ais_raster(df = df[i,], dsn, savedsn, cellsize, ais_mask)
-# }
-# 
-# proc.time() - start
+
+#' Reads multiple monthly AIS files, crops to a buffered study area, filters by meta type,
+#' combines all filtered geometries, and rasterizes the result for each meta type.
+#'
+#' @param files A character vector of file paths to monthly AIS trackline files.
+#' @param study An `sf` object representing the study area boundary.
+#' @param meta_types A character vector of meta types to process (e.g., "intracoupled").
+#' @param cellsize Numeric value for raster resolution (in meters).
+#' @param ais_mask A `terra` raster object used as the initial mask.
+#' @param land_mask A `terra` raster object used to mask out land areas.
+#' @param output_dir A character string for the directory where rasters will be saved.
+#'
+#' @return Writes raster files to disk for each `meta_type`.
+#' @export
+rasterize_ais_metatype <- function(df, 
+                                      dsn,
+                                      study, 
+                                      cellsize, 
+                                      ais_mask, 
+                                      land_mask, 
+                                      output_dir) {
+  
+  
+  # filtered_geoms <- list()  # initialize an empty list
+  
+  for (i in 1:length(df$month)){
+    print(df[i,])
+    
+    d <- df[i,]
+    
+    filelist <- intersect(
+      list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
+      list.files(dsn, pattern = paste0("_",as.character(d$month), "_"), full.names = TRUE)
+    )
+    files <- filelist[grepl(".gpkg", filelist)]
+    
+    ships <- lapply(files, function(x) st_read(x)) %>% do.call(rbind, .) 
+    
+    if (length(ships$scrmblm) > 0) {
+      layer_suffix <- paste0("_", d$year, "_", d$month)
+      output_suffix <- paste0(layer_suffix, ".tif")
+      
+      temp <- ships %>%
+        nest_by(meta_type,.keep = T)
+      
+      for(j in 1:length(temp$meta_type)){
+        lyr <- paste0(temp$meta_type[[j]], layer_suffix)
+        make_ais_raster(
+          ships = temp$data[[j]],
+          cellsize = cellsize,
+          ais_mask = study,
+          land_mask = land_mask,
+          output_name = file.path(output_dir, paste0(temp$meta_type[[j]], output_suffix)),
+          layer_name = lyr
+        )
+      }
+    }
+  }
+}
+
+
+#' Process AIS Files by Season and Vessel Type
+#'
+#' Filters input files by season and vessel type, then calls `make_ais_raster()`.
+#'
+#' @param df A data frame with columns: `year`, `vessel_type`, and `season`.
+#' @param dsn Character path to the directory containing geopackage files.
+#' @param savedsn Character path where output raster should be saved.
+#' @param cellsize Numeric value for raster resolution (in meters).
+#' @param ais_mask A `terra` raster object used as the initial mask.
+#' @param land_mask A `terra` raster object used to mask out land areas.
+#'
+#' @return Writes a seasonal raster to disk using `make_ais_raster()`.
+#' @export
+rasterize_ais_seasonal <- function(df, dsn, savedsn, cellsize, ais_mask, land_mask) {
+  filelist <- intersect(
+    list.files(dsn, pattern = as.character(df$year), full.names = TRUE),
+    list.files(dsn, pattern = as.character(df$vessel_type), full.names = TRUE)
+  )
+  files <- filelist[grepl(".gpkg", filelist)]
+  
+  season_pattern <- switch(tolower(df$season),
+                           "spring" = "03_|04_|05_",
+                           "summer" = "06_|07_|08_",
+                           "fall"   = "09_|10_|11_",
+                           "winter" = "12_|01_|02_",
+                           stop("Invalid season"))
+  
+  toload <- grep(season_pattern, files, value = TRUE)
+  
+  if(length(toload) == 0){
+    print(paste0("No data for ", df$vessel_type, " in ", df$season, " of ", df$year))
+    return(NULL)
+  }
+  
+  output_name <- file.path(savedsn, paste0(df$vessel_type, "_", df$year, "_", as.numeric(df$season), ".tif"))
+  layer_name <- paste0(df$vessel_type, "_", df$year, "_", df$season)
+  
+  ships <- lapply(toload, st_read, quiet = TRUE) %>% do.call(rbind, .)
+  
+  make_ais_raster(ships, cellsize, ais_mask, land_mask, output_name, layer_name)
+}
 
 ##############################################################################
 ######################### PLACE TESSELATION FUNCTION ######################### 
