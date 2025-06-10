@@ -58,6 +58,7 @@ metacoupling_and_place_visits_analysis <- function(vessel_type, dsn, savedsn, st
 
   # Step 9: Write output files (CSV and shapefiles)
   write_output_files(tracklines_clean, savedsn, vessel_type, monthly_output, chunks)
+  return(tracklines_clean)
   print(paste0(vessel_type, ": COMPLETE"))
   
 }
