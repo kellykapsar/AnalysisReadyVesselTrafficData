@@ -32,12 +32,11 @@ module load R/4.2.2-foss-2022b GDAL/3.6.2-foss-2022b
 
 # Access arguments
 TYPE=$1
-MODE=$2
 
-echo "Submitting job for TYPE=$TYPE and MODE=$MODE"
+echo "Submitting job for TYPE=$TYPE"
 
 # Run your R script with the arguments
-Rscript 1-AISSubset_BeringStrait_VoyageLineCreation.R "$TYPE" "$MODE"
+Rscript 1-Metacoupling_And_Place_Visits.R "$TYPE"
 
 # show information on resources used during job processing
 qstat –f ${PBS_JOBID} 

@@ -39,9 +39,9 @@ library(lubridate)
 #### Read in auxiliary data -----------------------------------------------
 
 # Set input and output directories
-dsn <-"../AIS/Data_Processed_V4/Vector/"
+dsn <-"/mnt/research/CSIS/AIS/Data_Processed_V4/Vector/"
 # dsn <-"../AISProcessing_V2/Data_Processed_V4/Vector/"
-savedsn <- paste0("./Data_Processed/Vector_Vessels/")
+savedsn <- paste0("mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Vector_Vessels/")
 
 # Read in analysis functions 
 source("./R/1-2-AnalysisFunctions.R")
@@ -61,7 +61,6 @@ places <- st_read("./Data_Processed/Places/Pacific_Arctic_Places_And_Populations
 # Load arguments from sb file 
 args <- commandArgs(trailingOnly = TRUE)
 ship_type <- args[1]
-mode <- args[2]
 
 # Run main function 
 metacoupling_and_place_visits_analysis(

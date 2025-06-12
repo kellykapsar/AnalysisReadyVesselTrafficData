@@ -32,29 +32,28 @@ metacoupling_and_place_visits_analysis <- function(vessel_type, dsn, savedsn, st
   tracklines <- load_vessel_shapefiles(dsn, vessel_type)
   print(paste0(vessel_type, ": step 1 complete"))
   
-  # Step 3: Remove tracklines outside the AIS boundary
+  # Step 2: Remove tracklines outside the AIS boundary
   tracklines <- tracklines[st_intersects(tracklines, aisbounds, sparse = FALSE), ]
   print(paste0(vessel_type, ": step 2 complete"))
   
-  # Step 4: Annotate tracklines with relevant intersections (study, gates)
+  # Step 3: Annotate tracklines with relevant intersections (study, gates)
   # and with places that the vessel stops 
   tracklines <- annotate_tracklines(tracklines, study, gates, eez, places)
   tracklines <- identify_stops(tracklines, places)
   print(paste0(vessel_type, ": step 3 complete"))
   
-  
-  
-  # Step 6: Summarize voyages by vessel and year and classify metacoupling type
+  # Step 4: Summarize voyages by vessel and year and classify metacoupling type
   vessel_summary <- summarize_voyages(tracklines, places, study) %>% 
     classify_meta_type()
   
-  write.csv(vessel_summary, paste0("../Data_Processed/Vessel_Summaries/vessel_summaries", vessel_type, ".csv"))
+  write.csv(vessel_summary, 
+            paste0("../Data_Processed/Vessel_Summaries/vessel_summaries", vessel_type, ".csv"))
   
   print(paste0(vessel_type, ": step 4 complete"))
   
-  # Step 8: Clean up tracklines for writing shapefile
+  # Step 5: Clean up tracklines for writing shapefile
   tracklines_clean <- clean_tracklines_for_output(tracklines, vessel_summary, places, study)
-  print(paste0(vessel_type, ": step 8 complete"))
+  print(paste0(vessel_type, ": step 5 complete"))
 
   # Step 9: Write output files (CSV and shapefiles)
   write_output_files(tracklines_clean, savedsn, vessel_type, monthly_output, chunks)
@@ -580,6 +579,179 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
   
   writeRaster(rast_noland, filename = output_name, overwrite=T)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#' Rasterize AIS Data by Timescale and Subset Category
+#'
+#' This function processes AIS `.gpkg` files and rasterizes them based on a specified 
+#' temporal scale (monthly or seasonal) and a subset category (e.g., `ship_type`, `meta_type`). 
+#' If no data frame of combinations (`df`) is supplied, the function automatically generates
+#' valid combinations of year, time unit, and subset category from available data files.
+#'
+#' @param df Optional. A data frame specifying combinations of `year`, `month` or `season`, and subset category.
+#'           If `NULL`, combinations are auto-generated from available `.gpkg` files.
+#' @param dsn Character. Path to the directory containing `.gpkg` files.
+#' @param output_dir Character. Directory where output rasters should be saved.
+#' @param cellsize Numeric. Size of raster grid cells.
+#' @param ais_mask Spatial object. Study area mask used for rasterization.
+#' @param land_mask Spatial object. Land mask used for rasterization.
+#' @param timescale Character. Either `"monthly"` or `"seasonal"`. Controls the temporal resolution of outputs.
+#' @param subset Character. Column to subset data by, e.g., `"ship_type"` or `"meta_type"`.
+#'
+#' @return Raster `.tif` files saved to the `output_dir`.
+#' @export
+#'
+#' @examples
+#' rasterize_ais(dsn = "data/ais", output_dir = "output/rasters", 
+#'               cellsize = 100, ais_mask = study_area, land_mask = land, 
+#'               timescale = "seasonal", subset = "ship_type")
+rasterize_ais <- function(df = NULL,
+                          dsn,
+                          output_dir, 
+                          cellsize, 
+                          ais_mask, 
+                          land_mask, 
+                          timescale = c("monthly", "seasonal"), 
+                          subset = c("ship_type", "meta_type")) {
+  
+  library(sf)
+  library(dplyr)
+  library(tidyr)
+  library(stringr)
+  
+  timescale <- match.arg(timescale)
+  subset <- match.arg(subset)
+  
+  # Generate df if NULL
+  if (is.null(df)) {
+    files <- list.files(dsn, pattern = "\\.gpkg$", full.names = FALSE)
+    
+    # Extract year and month from filenames
+    year <- str_extract(files, "\\d{4}")
+    month <- str_extract(files, "_(\\d{2})_") |> str_remove_all("_")
+    
+    # Sample a file to get subset values
+    sample_file <- list.files(dsn, pattern = "\\.gpkg$", full.names = TRUE)[1]
+    sample_data <- suppressMessages(st_read(sample_file, quiet = TRUE))
+    
+    if (!subset %in% names(sample_data)) {
+      stop(paste("Subset column", subset, "not found in sample data"))
+    }
+    
+    subset_values <- unique(sample_data[[subset]])
+    year <- unique(year[!is.na(year)])
+    
+    if (timescale == "monthly") {
+      month <- unique(month[!is.na(month)])
+      df <- expand.grid(set = subset_values, month = month, year = year, stringsAsFactors = FALSE)
+      names(df) <- c(subset, "month", "year")
+    } else {
+      season_levels <- c("winter", "spring", "summer", "fall")
+      df <- expand.grid(set = subset_values, season = season_levels, year = year, stringsAsFactors = FALSE)
+      names(df) <- c(subset, "season", "year")
+    }
+  }
+  
+  for (i in 1:nrow(df)) {
+    d <- df[i, ]
+    print(d)
+    
+    if (timescale == "monthly") {
+      filelist <- intersect(
+        list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
+        list.files(dsn, pattern = paste0("_", sprintf("%02d", as.integer(d$month)), "_"), full.names = TRUE)
+      )
+      files <- filelist[grepl(".gpkg", filelist)]
+      
+    } else {
+      season_pattern <- switch(tolower(d$season),
+                               "spring" = "03_|04_|05_",
+                               "summer" = "06_|07_|08_",
+                               "fall"   = "09_|10_|11_",
+                               "winter" = "12_|01_|02_",
+                               stop("Invalid season"))
+      
+      filelist <- intersect(
+        list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
+        list.files(dsn, pattern = as.character(d[[subset]]), full.names = TRUE)
+      )
+      files <- grep(season_pattern, filelist, value = TRUE)
+    }
+    
+    if (length(files) == 0) {
+      message(paste0("No data for ", d[[subset]], " in ", timescale, " of ", d$year))
+      next
+    }
+    
+    ships <- lapply(files, st_read, quiet = TRUE) %>% do.call(rbind, .)
+    
+    if (nrow(ships) > 0) {
+      layer_suffix <- if (timescale == "monthly") {
+        paste0("_", d$year, "_", sprintf("%02d", as.integer(d$month)))
+      } else {
+        paste0("_", d$year, "_", d$season)
+      }
+      output_suffix <- paste0(layer_suffix, ".tif")
+      
+      if (subset %in% names(ships)) {
+        nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE)
+        
+        for (j in 1:nrow(nested)) {
+          group_val <- as.character(nested[[subset]][[j]])
+          layer_name <- paste0(group_val, layer_suffix)
+          output_name <- file.path(output_dir, paste0(group_val, output_suffix))
+          
+          make_ais_raster(
+            ships = nested$data[[j]],
+            cellsize = cellsize,
+            ais_mask = ais_mask,
+            land_mask = land_mask,
+            output_name = output_name,
+            layer_name = layer_name
+          )
+        }
+      } else {
+        warning(paste("Subset column", subset, "not found in ship data"))
+      }
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #' Reads multiple monthly AIS files, crops to a buffered study area, filters by meta type,
