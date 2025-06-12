@@ -44,19 +44,19 @@ dsn <-"/mnt/research/CSIS/AIS/Data_Processed_V4/Vector/"
 savedsn <- paste0("mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Vector_Vessels/")
 
 # Read in analysis functions 
-source("./R/1-2-AnalysisFunctions.R")
+source("./1-2-AnalysisFunctions.R")
 
 # Define Alaska Albers Equal Area projection
 AA <- "+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
 
 # Read and transform spatial boundary files
-study <- st_read("./Data_Raw/StudyArea_ModifiedBerkman.shp") %>% st_transform(AA)
-aisbounds <- st_read("./Data_Raw/ais_reshape_innerbuffer_15km.shp") %>% st_transform(AA)
-gates <- st_read("./Data_Raw/gates_innerbuffer_15km.shp")
-eez <- st_read("./Data_Raw/us_rus_boundaries.shp")
+study <- st_read("../Data_Raw/StudyArea_ModifiedBerkman.shp") %>% st_transform(AA)
+aisbounds <- st_read("../Data_Raw/ais_reshape_innerbuffer_15km.shp") %>% st_transform(AA)
+gates <- st_read("../Data_Raw/gates_innerbuffer_15km.shp")
+eez <- st_read("../Data_Raw/us_rus_boundaries.shp")
 
 # Read and buffer locations of interest (e.g., ports, communities)
-places <- st_read("./Data_Processed/Places/Pacific_Arctic_Places_And_Populations_20km_buffer_no_overlap.shp") 
+places <- st_read("../Data_Processed/Places/Pacific_Arctic_Places_And_Populations_20km_buffer_no_overlap.shp") 
 
 # Load arguments from sb file 
 args <- commandArgs(trailingOnly = TRUE)
