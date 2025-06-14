@@ -38,10 +38,13 @@ library(lubridate)
 
 #### Read in auxiliary data -----------------------------------------------
 
+setwd("/mnt/home/kapsarke/Documents/AnalysisReadyVesselTrafficData/R/")
+
 # Set input and output directories
 dsn <-"/mnt/research/CSIS/AIS/Data_Processed_V4/Vector/"
 # dsn <-"../AISProcessing_V2/Data_Processed_V4/Vector/"
-savedsn <- paste0("mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Vector_Vessels/")
+
+savedsn <- "/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Vector_Vessels/"
 
 # Read in analysis functions 
 source("./1-2-AnalysisFunctions.R")
