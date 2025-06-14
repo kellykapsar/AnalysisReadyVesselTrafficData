@@ -1,0 +1,36 @@
+#!/bin/bash -login 
+
+# specify resources needed. 
+
+#SBATCH -J metacoupled_ship 
+
+# Number of nodes needed 
+#SBATCH --nodes=1
+#
+# Tasks per node
+#SBATCH --ntasks-per-node=1
+# 
+# Processors per task:
+#SBATCH --cpus-per-task=6
+#
+# how much memory?
+#SBATCH --mem=900gb
+# 
+# how long?
+#SBATCH --time=24:00:00
+# 
+# Mail type:
+#SBATCH --mail-type=FAIL,END
+#
+# Mail user:
+#SBATCH --mail-user=kapsarke@msu.edu
+
+# run R commandline with the Rscript command
+module purge
+module load R/4.2.2-foss-2022b GDAL/3.6.2-foss-2022b 
+
+# Run your R script with the arguments
+Rscript 2-Generate_Rasters.R $year 
+
+# show information on resources used during job processing
+qstat –f ${PBS_JOBID} 

@@ -1,0 +1,21 @@
+#!/bin/bash -login 
+
+#SBATCH -A data-machine
+#SBATCH -J ais_rasters 
+#SBATCH --mem=900GB 
+#SBATCH --cpus-per-task=100
+#SBATCH --time=12:00:00
+# Mail type:
+#SBATCH --mail-type=ALL
+# Mail user:
+#SBATCH --mail-user=kapsarke@msu.edu
+
+# run R commandline with the Rscript command
+module purge
+module load R/4.2.2-foss-2022b GDAL/3.6.2-foss-2022b 
+
+# Run your R script with the arguments
+Rscript 2-Generate_Rasters.R $year
+
+# show information on resources used during job processing
+qstat –f ${PBS_JOBID} 
