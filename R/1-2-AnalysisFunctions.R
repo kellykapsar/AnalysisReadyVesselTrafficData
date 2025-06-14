@@ -503,6 +503,7 @@ write_output_files <- function(tracklines, savedsn, vessel_type, monthly_output 
   }
   if(monthly_output == TRUE){
     unique_combos <- tracklines %>%
+      st_drop_geometry() %>% 
       distinct(year, month, ship_type)
     
     for (i in seq_len(nrow(unique_combos))) {
@@ -563,7 +564,50 @@ summarize_output_econ <- function(tracklines, vessel_summary){
 #'
 #' @return Writes the resulting raster to disk.
 #' @export
+# make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+#   library(terra)
+#   library(sf)
+#   
+#   # Convert sf to SpatVector
+#   ships_vect <- terra::vect(ships)
+#   
+#   # Create an empty raster grid using ais_mask extent and given cell size
+#   ext <- terra::ext(ais_mask)
+#   template <- terra::rast(ext, resolution = cellsize, crs = terra::crs(ais_mask))
+#   
+#   # Rasterize: compute total line length per cell
+#   moRAST <- terra::rasterizeGeom(ships_vect, template, fun = "length", unit = "km")
+#   
+#   # Mask and crop to AIS area
+#   rast <- terra::mask(moRAST, ais_mask) |> terra::crop(ais_mask)
+#   
+#   # Mask land areas
+#   rast_noland <- terra::mask(rast, land_mask, inverse = TRUE, touches = FALSE)
+#   
+#   # Name the layer
+#   names(rast_noland) <- layer_name
+#   
+#   # Write result
+#   terra::writeRaster(rast_noland, filename = output_name, overwrite = TRUE)
+# }
+
+
+#' Create AIS Raster from Vector Files
+#'
+#' Converts a list of AIS geopackage file paths to a raster with masking and unit conversion.
+#'
+#' @param files A character vector of file paths to read and convert to raster.
+#' @param cellsize Numeric value for raster resolution (in meters).
+#' @param ais_mask A `terra` raster object used as the initial mask.
+#' @param land_mask A `terra` raster object used to mask out land areas.
+#' @param output_name A character string for the output raster filename (including path).
+#' @param layer_name A character string for the raster layer name.
+#'
+#' @return Writes the resulting raster to disk.
+#' @export
 make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+  library(maptools)
+  
   moSHP <- as(ships, "Spatial")
   moPSP <- as.psp(moSHP)
   
@@ -582,24 +626,9 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-#' Rasterize AIS Data by Timescale and Subset Category
-#'
 #' This function processes AIS `.gpkg` files and rasterizes them based on a specified 
 #' temporal scale (monthly or seasonal) and a subset category (e.g., `ship_type`, `meta_type`). 
-#' If no data frame of combinations (`df`) is supplied, the function automatically generates
-#' valid combinations of year, time unit, and subset category from available data files.
+#' It handles winter seasons crossing years (e.g., winter 2015 = Dec 2014 + Jan 2015 + Feb 2015).
 #'
 #' @param df Optional. A data frame specifying combinations of `year`, `month` or `season`, and subset category.
 #'           If `NULL`, combinations are auto-generated from available `.gpkg` files.
@@ -613,11 +642,6 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
 #'
 #' @return Raster `.tif` files saved to the `output_dir`.
 #' @export
-#'
-#' @examples
-#' rasterize_ais(dsn = "data/ais", output_dir = "output/rasters", 
-#'               cellsize = 100, ais_mask = study_area, land_mask = land, 
-#'               timescale = "seasonal", subset = "ship_type")
 rasterize_ais <- function(df = NULL,
                           dsn,
                           output_dir, 
@@ -638,12 +662,9 @@ rasterize_ais <- function(df = NULL,
   # Generate df if NULL
   if (is.null(df)) {
     files <- list.files(dsn, pattern = "\\.gpkg$", full.names = FALSE)
-    
-    # Extract year and month from filenames
     year <- str_extract(files, "\\d{4}")
     month <- str_extract(files, "_(\\d{2})_") |> str_remove_all("_")
     
-    # Sample a file to get subset values
     sample_file <- list.files(dsn, pattern = "\\.gpkg$", full.names = TRUE)[1]
     sample_data <- suppressMessages(st_read(sample_file, quiet = TRUE))
     
@@ -656,12 +677,12 @@ rasterize_ais <- function(df = NULL,
     
     if (timescale == "monthly") {
       month <- unique(month[!is.na(month)])
-      df <- expand.grid(set = subset_values, month = month, year = year, stringsAsFactors = FALSE)
+      df <- expand.grid(month = month, year = year, stringsAsFactors = FALSE)
       names(df) <- c(subset, "month", "year")
     } else {
       season_levels <- c("winter", "spring", "summer", "fall")
-      df <- expand.grid(set = subset_values, season = season_levels, year = year, stringsAsFactors = FALSE)
-      names(df) <- c(subset, "season", "year")
+      df <- expand.grid(season = season_levels, year = year, stringsAsFactors = FALSE)
+      names(df) <- c("season", "year")
     }
   }
   
@@ -677,18 +698,27 @@ rasterize_ais <- function(df = NULL,
       files <- filelist[grepl(".gpkg", filelist)]
       
     } else {
-      season_pattern <- switch(tolower(d$season),
-                               "spring" = "03_|04_|05_",
-                               "summer" = "06_|07_|08_",
-                               "fall"   = "09_|10_|11_",
-                               "winter" = "12_|01_|02_",
-                               stop("Invalid season"))
-      
-      filelist <- intersect(
-        list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
-        list.files(dsn, pattern = as.character(d[[subset]]), full.names = TRUE)
-      )
-      files <- grep(season_pattern, filelist, value = TRUE)
+      if (tolower(d$season) == "winter") {
+        prev_year <- as.integer(d$year) - 1
+        this_year <- as.integer(d$year)
+        
+        files_prev <- list.files(dsn, pattern = as.character(prev_year), full.names = TRUE)
+        files_this <- list.files(dsn, pattern = as.character(this_year), full.names = TRUE)
+        
+        files_dec <- grep("_12_", files_prev, value = TRUE)
+        files_jan_feb <- grep("_01_|_02_", files_this, value = TRUE)
+        
+        files <- c(files_dec, files_jan_feb)
+      } else {
+        season_pattern <- switch(tolower(d$season),
+                                 "spring" = "_03_|_04_|_05_",
+                                 "summer" = "_06_|_07_|_08_",
+                                 "fall"   = "_09_|_10_|_11_",
+                                 stop("Invalid season"))
+        
+        files <- list.files(dsn, pattern = as.character(d$year), full.names = TRUE)
+        files <- grep(season_pattern, files, value = TRUE)
+      }
     }
     
     if (length(files) == 0) {
@@ -696,7 +726,7 @@ rasterize_ais <- function(df = NULL,
       next
     }
     
-    ships <- lapply(files, st_read, quiet = TRUE) %>% do.call(rbind, .)
+    ships <- lapply(files, st_read, quiet = TRUE) %>% do.call(bind_rows, .)
     
     if (nrow(ships) > 0) {
       layer_suffix <- if (timescale == "monthly") {
@@ -707,7 +737,7 @@ rasterize_ais <- function(df = NULL,
       output_suffix <- paste0(layer_suffix, ".tif")
       
       if (subset %in% names(ships)) {
-        nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE)
+        nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE) 
         
         for (j in 1:nrow(nested)) {
           group_val <- as.character(nested[[subset]][[j]])
@@ -730,131 +760,6 @@ rasterize_ais <- function(df = NULL,
   }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#' Reads multiple monthly AIS files, crops to a buffered study area, filters by meta type,
-#' combines all filtered geometries, and rasterizes the result for each meta type.
-#'
-#' @param files A character vector of file paths to monthly AIS trackline files.
-#' @param study An `sf` object representing the study area boundary.
-#' @param meta_types A character vector of meta types to process (e.g., "intracoupled").
-#' @param cellsize Numeric value for raster resolution (in meters).
-#' @param ais_mask A `terra` raster object used as the initial mask.
-#' @param land_mask A `terra` raster object used to mask out land areas.
-#' @param output_dir A character string for the directory where rasters will be saved.
-#'
-#' @return Writes raster files to disk for each `meta_type`.
-#' @export
-rasterize_ais_metatype <- function(df, 
-                                      dsn,
-                                      study, 
-                                      cellsize, 
-                                      ais_mask, 
-                                      land_mask, 
-                                      output_dir) {
-  
-  
-  # filtered_geoms <- list()  # initialize an empty list
-  
-  for (i in 1:length(df$month)){
-    print(df[i,])
-    
-    d <- df[i,]
-    
-    filelist <- intersect(
-      list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
-      list.files(dsn, pattern = paste0("_",as.character(d$month), "_"), full.names = TRUE)
-    )
-    files <- filelist[grepl(".gpkg", filelist)]
-    
-    ships <- lapply(files, function(x) st_read(x)) %>% do.call(rbind, .) 
-    
-    if (length(ships$scrmblm) > 0) {
-      layer_suffix <- paste0("_", d$year, "_", d$month)
-      output_suffix <- paste0(layer_suffix, ".tif")
-      
-      temp <- ships %>%
-        nest_by(meta_type,.keep = T)
-      
-      for(j in 1:length(temp$meta_type)){
-        lyr <- paste0(temp$meta_type[[j]], layer_suffix)
-        make_ais_raster(
-          ships = temp$data[[j]],
-          cellsize = cellsize,
-          ais_mask = study,
-          land_mask = land_mask,
-          output_name = file.path(output_dir, paste0(temp$meta_type[[j]], output_suffix)),
-          layer_name = lyr
-        )
-      }
-    }
-  }
-}
-
-
-#' Process AIS Files by Season and Vessel Type
-#'
-#' Filters input files by season and vessel type, then calls `make_ais_raster()`.
-#'
-#' @param df A data frame with columns: `year`, `vessel_type`, and `season`.
-#' @param dsn Character path to the directory containing geopackage files.
-#' @param savedsn Character path where output raster should be saved.
-#' @param cellsize Numeric value for raster resolution (in meters).
-#' @param ais_mask A `terra` raster object used as the initial mask.
-#' @param land_mask A `terra` raster object used to mask out land areas.
-#'
-#' @return Writes a seasonal raster to disk using `make_ais_raster()`.
-#' @export
-rasterize_ais_seasonal <- function(df, dsn, savedsn, cellsize, ais_mask, land_mask) {
-  filelist <- intersect(
-    list.files(dsn, pattern = as.character(df$year), full.names = TRUE),
-    list.files(dsn, pattern = as.character(df$vessel_type), full.names = TRUE)
-  )
-  files <- filelist[grepl(".gpkg", filelist)]
-  
-  season_pattern <- switch(tolower(df$season),
-                           "spring" = "03_|04_|05_",
-                           "summer" = "06_|07_|08_",
-                           "fall"   = "09_|10_|11_",
-                           "winter" = "12_|01_|02_",
-                           stop("Invalid season"))
-  
-  toload <- grep(season_pattern, files, value = TRUE)
-  
-  if(length(toload) == 0){
-    print(paste0("No data for ", df$vessel_type, " in ", df$season, " of ", df$year))
-    return(NULL)
-  }
-  
-  output_name <- file.path(savedsn, paste0(df$vessel_type, "_", df$year, "_", as.numeric(df$season), ".tif"))
-  layer_name <- paste0(df$vessel_type, "_", df$year, "_", df$season)
-  
-  ships <- lapply(toload, st_read, quiet = TRUE) %>% do.call(rbind, .)
-  
-  make_ais_raster(ships, cellsize, ais_mask, land_mask, output_name, layer_name)
-}
 
 ##############################################################################
 ######################### PLACE TESSELATION FUNCTION ######################### 
