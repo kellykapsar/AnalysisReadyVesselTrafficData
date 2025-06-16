@@ -564,32 +564,52 @@ summarize_output_econ <- function(tracklines, vessel_summary){
 #'
 #' @return Writes the resulting raster to disk.
 #' @export
-# make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
-#   library(terra)
-#   library(sf)
-#   
-#   # Convert sf to SpatVector
-#   ships_vect <- terra::vect(ships)
-#   
-#   # Create an empty raster grid using ais_mask extent and given cell size
-#   ext <- terra::ext(ais_mask)
-#   template <- terra::rast(ext, resolution = cellsize, crs = terra::crs(ais_mask))
-#   
-#   # Rasterize: compute total line length per cell
-#   moRAST <- terra::rasterizeGeom(ships_vect, template, fun = "length", unit = "km")
-#   
-#   # Mask and crop to AIS area
-#   rast <- terra::mask(moRAST, ais_mask) |> terra::crop(ais_mask)
-#   
-#   # Mask land areas
-#   rast_noland <- terra::mask(rast, land_mask, inverse = TRUE, touches = FALSE)
-#   
-#   # Name the layer
-#   names(rast_noland) <- layer_name
-#   
-#   # Write result
-#   terra::writeRaster(rast_noland, filename = output_name, overwrite = TRUE)
-# }
+make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+  library(terra)
+  library(sf)
+
+  # Create an empty raster grid using ais_mask extent and given cell size
+  ext <- terra::ext(ais_mask)
+  template <- terra::rast(ext, resolution = cellsize, crs = terra::crs(ais_mask))
+
+  # Convert raster to polygons (cells)
+  cell_polygons <- as.polygons(template) %>% st_as_sf()
+  cell_polygons$id <- 1:nrow(cell_polygons)
+  
+  # Intersect lines with cells
+  intersections <- st_intersection(st_make_valid(ships), st_make_valid(cell_polygons))
+  
+  # Calculate length of each intersected line segment
+  intersections$seg_length <- as.numeric(st_length(intersections))/1000
+  
+  # Aggregate total length per cell
+  length_by_cell <- intersections |>
+    st_drop_geometry() |>
+    group_by(id) |>
+    summarise(total_length = sum(as.numeric(seg_length)))  # ensure numeric units
+  
+  # Assign values to raster
+  result_raster <- template
+  values(result_raster) <- 0
+  result_raster[length_by_cell$id] <- length_by_cell$total_length
+
+  # Mask and crop to AIS area
+  rast <- terra::mask(result_raster, ais_mask) |> terra::crop(ais_mask)
+  
+  # Mask land areas
+  rast_noland <- terra::mask(rast, land_mask, inverse = TRUE, touches = FALSE)
+  
+  # Name the layer
+  names(rast_noland) <- layer_name
+  
+  # Write result
+  terra::writeRaster(rast_noland, filename = output_name, overwrite = TRUE)
+
+}  
+  
+  
+  
+
 
 
 #' Create AIS Raster from Vector Files
@@ -605,25 +625,24 @@ summarize_output_econ <- function(tracklines, vessel_summary){
 #'
 #' @return Writes the resulting raster to disk.
 #' @export
-make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
-  library(maptools)
-  
-  moSHP <- as(ships, "Spatial")
-  moPSP <- as.psp(moSHP)
-  
-  extentAOI <- as.owin(list(xrange = c(-2550000, 550000), yrange = c(235000, 2720000)))
-  allMask <- as.mask(extentAOI, eps = cellsize)
-  moPXL <- pixellate.psp(moPSP, W = allMask)
-  moRAST <- terra::rast(moPXL) / 1000
-  terra::crs(moRAST) <- AA
-  
-  rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
-  rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
-  names(rast_noland) <- layer_name
-  
-  writeRaster(rast_noland, filename = output_name, overwrite=T)
-}
-
+# make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+#   library(maptools)
+#   
+#   moSHP <- as(ships, "Spatial")
+#   moPSP <- as.psp(moSHP)
+#   
+#   extentAOI <- as.owin(list(xrange = c(-2550000, 550000), yrange = c(235000, 2720000)))
+#   allMask <- as.mask(extentAOI, eps = cellsize)
+#   moPXL <- pixellate.psp(moPSP, W = allMask)
+#   moRAST <- terra::rast(moPXL) / 1000
+#   terra::crs(moRAST) <- AA
+#   
+#   rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
+#   rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
+#   names(rast_noland) <- layer_name
+#   
+#   writeRaster(rast_noland, filename = output_name, overwrite=T)
+# }
 
 
 #' This function processes AIS `.gpkg` files and rasterizes them based on a specified 
