@@ -18,6 +18,7 @@ source("./1-2-AnalysisFunctions.R")
 AA <- "+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
 
 # Destination to save files
+# output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Monthly_Meta/")
 output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Seasonal_Meta/")
 
 # Source of vector files
@@ -37,10 +38,14 @@ study <- st_read("../Data_Raw/StudyArea_ModifiedBerkman.shp") %>%
 cellsize <- 4000
 
 # Derive all combinations of output rasters 
-# month <- stringr::str_pad(1:12, 2, pad = "0")
-season <- c("winter", "spring", "summer", "fall")
+# yr <- 2016
 yr <- commandArgs(trailingOnly = TRUE)
-# 
+
+# month <- stringr::str_pad(1:12, 2, pad = "0")
+# df <- expand.grid(month, yr)
+# colnames(df) <- c("month", "year")
+
+season <- c("winter", "spring", "summer", "fall")
 df <- expand.grid(season, yr)
 colnames(df) <- c("season", "year")
 

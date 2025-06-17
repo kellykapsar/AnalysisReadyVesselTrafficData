@@ -683,17 +683,17 @@ rasterize_ais <- function(df = NULL,
     files <- list.files(dsn, pattern = "\\.gpkg$", full.names = FALSE)
     year <- str_extract(files, "\\d{4}")
     month <- str_extract(files, "_(\\d{2})_") |> str_remove_all("_")
-    
+
     sample_file <- list.files(dsn, pattern = "\\.gpkg$", full.names = TRUE)[1]
     sample_data <- suppressMessages(st_read(sample_file, quiet = TRUE))
-    
+
     if (!subset %in% names(sample_data)) {
       stop(paste("Subset column", subset, "not found in sample data"))
     }
-    
+
     subset_values <- unique(sample_data[[subset]])
     year <- unique(year[!is.na(year)])
-    
+
     if (timescale == "monthly") {
       month <- unique(month[!is.na(month)])
       df <- expand.grid(month = month, year = year, stringsAsFactors = FALSE)
@@ -718,16 +718,19 @@ rasterize_ais <- function(df = NULL,
       
     } else {
       if (tolower(d$season) == "winter") {
-        prev_year <- as.integer(d$year) - 1
-        this_year <- as.integer(d$year)
+        prev_year <- as.numeric(as.character(d$year[1])) - 1
+        this_year <- as.numeric(as.character(d$year[1]))
         
         files_prev <- list.files(dsn, pattern = as.character(prev_year), full.names = TRUE)
+
         files_this <- list.files(dsn, pattern = as.character(this_year), full.names = TRUE)
         
         files_dec <- grep("_12_", files_prev, value = TRUE)
+        
         files_jan_feb <- grep("_01_|_02_", files_this, value = TRUE)
         
         files <- c(files_dec, files_jan_feb)
+        
       } else {
         season_pattern <- switch(tolower(d$season),
                                  "spring" = "_03_|_04_|_05_",
@@ -745,8 +748,11 @@ rasterize_ais <- function(df = NULL,
       next
     }
     
+    print("Input files:")
+    print(files)
+        
     ships <- lapply(files, st_read, quiet = TRUE) %>% do.call(bind_rows, .)
-    
+
     if (nrow(ships) > 0) {
       layer_suffix <- if (timescale == "monthly") {
         paste0("_", d$year, "_", sprintf("%02d", as.integer(d$month)))
@@ -754,15 +760,17 @@ rasterize_ais <- function(df = NULL,
         paste0("_", d$year, "_", d$season)
       }
       output_suffix <- paste0(layer_suffix, ".tif")
-      
+
       if (subset %in% names(ships)) {
-        nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE) 
-        
+        nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE)
+
         for (j in 1:nrow(nested)) {
           group_val <- as.character(nested[[subset]][[j]])
           layer_name <- paste0(group_val, layer_suffix)
           output_name <- file.path(output_dir, paste0(group_val, output_suffix))
           
+          print(output_name)
+
           make_ais_raster(
             ships = nested$data[[j]],
             cellsize = cellsize,
