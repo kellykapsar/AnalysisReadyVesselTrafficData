@@ -772,16 +772,6 @@ rasterize_ais <- function(df = NULL,
     }
     output_suffix <- paste0(layer_suffix, ".tif")
     
-    # If no files found, create blank raster for all types
-    if (length(files) == 0) {
-      message(paste0("No data files for ", timescale, ": ", layer_suffix, " — writing blank rasters"))
-      for (group_val in expected_types) {
-        layer_name <- paste0(group_val, layer_suffix)
-        output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-        make_blank_raster(cellsize, ais_mask, land_mask, output_name, layer_name)
-      }
-      next
-    }
     
     # Try reading the files
     ships <- tryCatch({
@@ -803,6 +793,7 @@ rasterize_ais <- function(df = NULL,
     
     # Nest by group
     nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE)
+    nested[[subset]] <- ifelse(is.na(nested[[subset]]), "NA", as.character(nested[[subset]]))
     present_groups <- as.character(nested[[subset]])
     missing_groups <- setdiff(expected_types, present_groups)
     
