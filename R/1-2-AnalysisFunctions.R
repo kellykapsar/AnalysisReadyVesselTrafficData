@@ -564,49 +564,49 @@ summarize_output_econ <- function(tracklines, vessel_summary){
 #'
 #' @return Writes the resulting raster to disk.
 #' @export
-make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
-  library(terra)
-  library(sf)
-
-  # Create an empty raster grid using ais_mask extent and given cell size
-  ext <- terra::ext(ais_mask)
-  template <- terra::rast(ext, resolution = cellsize, crs = terra::crs(ais_mask))
-
-  # Convert raster to polygons (cells)
-  cell_polygons <- as.polygons(template) %>% st_as_sf()
-  cell_polygons$id <- 1:nrow(cell_polygons)
-  
-  # Intersect lines with cells
-  intersections <- st_intersection(st_make_valid(ships), st_make_valid(cell_polygons))
-  
-  # Calculate length of each intersected line segment
-  intersections$seg_length <- as.numeric(st_length(intersections))/1000
-  
-  # Aggregate total length per cell
-  length_by_cell <- intersections |>
-    st_drop_geometry() |>
-    group_by(id) |>
-    summarise(total_length = sum(as.numeric(seg_length)))  # ensure numeric units
-  
-  # Assign values to raster
-  result_raster <- template
-  values(result_raster) <- 0
-  result_raster[length_by_cell$id] <- length_by_cell$total_length
-
-  # Mask and crop to AIS area
-  rast <- terra::mask(result_raster, ais_mask) |> terra::crop(ais_mask)
-  
-  # Mask land areas
-  rast_noland <- terra::mask(rast, land_mask, inverse = TRUE, touches = FALSE)
-  
-  # Name the layer
-  names(rast_noland) <- layer_name
-  
-  # Write result
-  terra::writeRaster(rast_noland, filename = output_name, overwrite = TRUE)
-
-}  
-  
+# make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+#   library(terra)
+#   library(sf)
+# 
+#   # Create an empty raster grid using ais_mask extent and given cell size
+#   ext <- terra::ext(ais_mask)
+#   template <- terra::rast(ext, resolution = cellsize, crs = terra::crs(ais_mask))
+# 
+#   # Convert raster to polygons (cells)
+#   cell_polygons <- as.polygons(template) %>% st_as_sf()
+#   cell_polygons$id <- 1:nrow(cell_polygons)
+#   
+#   # Intersect lines with cells
+#   intersections <- st_intersection(st_make_valid(ships), st_make_valid(cell_polygons))
+#   
+#   # Calculate length of each intersected line segment
+#   intersections$seg_length <- as.numeric(st_length(intersections))/1000
+#   
+#   # Aggregate total length per cell
+#   length_by_cell <- intersections |>
+#     st_drop_geometry() |>
+#     group_by(id) |>
+#     summarise(total_length = sum(as.numeric(seg_length)))  # ensure numeric units
+#   
+#   # Assign values to raster
+#   result_raster <- template
+#   values(result_raster) <- 0
+#   result_raster[length_by_cell$id] <- length_by_cell$total_length
+# 
+#   # Mask and crop to AIS area
+#   rast <- terra::mask(result_raster, ais_mask) |> terra::crop(ais_mask)
+#   
+#   # Mask land areas
+#   rast_noland <- terra::mask(rast, land_mask, inverse = TRUE, touches = FALSE)
+#   
+#   # Name the layer
+#   names(rast_noland) <- layer_name
+#   
+#   # Write result
+#   terra::writeRaster(rast_noland, filename = output_name, overwrite = TRUE)
+# 
+# }  
+#   
   
   
 
@@ -625,24 +625,24 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
 #'
 #' @return Writes the resulting raster to disk.
 #' @export
-# make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
-#   library(maptools)
-#   
-#   moSHP <- as(ships, "Spatial")
-#   moPSP <- as.psp(moSHP)
-#   
-#   extentAOI <- as.owin(list(xrange = c(-2550000, 550000), yrange = c(235000, 2720000)))
-#   allMask <- as.mask(extentAOI, eps = cellsize)
-#   moPXL <- pixellate.psp(moPSP, W = allMask)
-#   moRAST <- terra::rast(moPXL) / 1000
-#   terra::crs(moRAST) <- AA
-#   
-#   rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
-#   rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
-#   names(rast_noland) <- layer_name
-#   
-#   writeRaster(rast_noland, filename = output_name, overwrite=T)
-# }
+make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+  library(maptools)
+
+  moSHP <- as(ships, "Spatial")
+  moPSP <- as.psp(moSHP)
+
+  extentAOI <- as.owin(list(xrange = c(-2550000, 550000), yrange = c(235000, 2720000)))
+  allMask <- as.mask(extentAOI, eps = cellsize)
+  moPXL <- pixellate.psp(moPSP, W = allMask)
+  moRAST <- terra::rast(moPXL) / 1000
+  terra::crs(moRAST) <- AA
+
+  rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
+  rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
+  names(rast_noland) <- layer_name
+
+  writeRaster(rast_noland, filename = output_name, overwrite=T)
+}
 
 
 #' This function processes AIS `.gpkg` files and rasterizes them based on a specified 
@@ -712,7 +712,7 @@ rasterize_ais <- function(df = NULL,
     if (timescale == "monthly") {
       filelist <- intersect(
         list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
-        list.files(dsn, pattern = paste0("_", sprintf("%02d", as.integer(d$month)), "_"), full.names = TRUE)
+        list.files(dsn, pattern = paste0("_", sprintf("%02d", as.integer(as.character((d$month)))), "_"), full.names = TRUE)
       )
       files <- filelist[grepl(".gpkg", filelist)]
       
@@ -755,7 +755,7 @@ rasterize_ais <- function(df = NULL,
 
     if (nrow(ships) > 0) {
       layer_suffix <- if (timescale == "monthly") {
-        paste0("_", d$year, "_", sprintf("%02d", as.integer(d$month)))
+        paste0("_", d$year, "_", sprintf("%02d", as.integer(as.character(d$month))))
       } else {
         paste0("_", d$year, "_", d$season)
       }
@@ -768,7 +768,7 @@ rasterize_ais <- function(df = NULL,
           group_val <- as.character(nested[[subset]][[j]])
           layer_name <- paste0(group_val, layer_suffix)
           output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-          
+
           print(output_name)
 
           make_ais_raster(
