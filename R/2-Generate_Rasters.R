@@ -9,6 +9,8 @@ library(terra)
 
 # ---- SETUP ----
 
+start <- proc.time()
+
 setwd("/mnt/home/kapsarke/Documents/AnalysisReadyVesselTrafficData/R")
 
 # Read in analysis functions 
@@ -18,8 +20,8 @@ source("./1-2-AnalysisFunctions.R")
 AA <- "+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
 
 # Destination to save files
-# output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Monthly_Meta/")
-output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Seasonal_Meta/")
+output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Monthly_Meta/")
+# output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Seasonal_Meta/")
 
 # Source of vector files
 dsn <-"/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Vector_Vessels/"
@@ -39,15 +41,18 @@ cellsize <- 4000
 
 # Derive all combinations of output rasters 
 # yr <- 2016
-yr <- commandArgs(trailingOnly = TRUE)
+# month <- 02
+args <- commandArgs(trailingOnly = TRUE)
+yr <- args[1]
+month <- args[2]
+df <- expand.grid(month, yr)
+colnames(df) <- c("month", "year")
 
-# month <- stringr::str_pad(1:12, 2, pad = "0")
-# df <- expand.grid(month, yr)
-# colnames(df) <- c("month", "year")
+# season <- c("winter", "spring", "summer", "fall")
+# df <- expand.grid(season, yr)
+# colnames(df) <- c("season", "year")
 
-season <- c("winter", "spring", "summer", "fall")
-df <- expand.grid(season, yr)
-colnames(df) <- c("season", "year")
+print(paste0("STARTING ANALYSIS FOR: ",df$year[1], "-", df$month[1]))
 
 rasterize_ais(df,
   dsn,
@@ -55,5 +60,13 @@ rasterize_ais(df,
   cellsize, 
   ais_mask, 
   land_mask, 
-  timescale = "seasonal", 
+  timescale = "monthly", 
   subset = "meta_type")
+
+end <- proc.time()
+elapsed_sec <- end["elapsed"]
+elapsed_min <- as.numeric(elapsed_sec) / 60
+
+cat("\n\nElapsed time:", round(elapsed_min, 2), "minutes\n")
+
+print(paste0(df$year[1], "-", df$month[1], " COMPLETE!"))
