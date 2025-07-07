@@ -644,22 +644,48 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
   writeRaster(rast_noland, filename = output_name, overwrite=T)
 }
 
+#' Create a Blank Raster Layer for a Missing Subset Category
+#'
+#' Generates a raster layer with zero values using the extent and resolution
+#' of the given `ais_mask`. Used when no data is available for a given 
+#' ship or meta category in a time period.
+#'
+#' @param cellsize Numeric. Desired resolution of the raster in meters.
+#' @param ais_mask A `terra` raster object representing the study area extent and CRS.
+#' @param land_mask A `terra` raster object to mask out land (inverse = TRUE).
+#' @param output_name Character. Full file path where the blank raster will be saved.
+#' @param layer_name Character. Layer name assigned to the raster.
+#'
+#' @return A blank raster is written to disk.
+#' @export
+make_blank_raster <- function(cellsize, ais_mask, land_mask, output_name, layer_name) {
+  blank <- terra::rast(ais_mask)
+  terra::res(blank) <- cellsize
+  terra::values(blank) <- 0
+  blank <- terra::mask(blank, land_mask, inverse = TRUE)
+  names(blank) <- layer_name
+  terra::writeRaster(blank, output_name, overwrite = TRUE)
+}
 
+
+#' Rasterize AIS Data by Timescale and Subset Category
+#'
 #' This function processes AIS `.gpkg` files and rasterizes them based on a specified 
-#' temporal scale (monthly or seasonal) and a subset category (e.g., `ship_type`, `meta_type`). 
-#' It handles winter seasons crossing years (e.g., winter 2015 = Dec 2014 + Jan 2015 + Feb 2015).
+#' temporal scale (`monthly` or `seasonal`) and subset category (`ship_type` or `meta_type`). 
+#' It automatically generates rasters for all expected subset values, including blank rasters 
+#' when no data is present. Winter seasons are correctly handled as spanning two years.
 #'
 #' @param df Optional. A data frame specifying combinations of `year`, `month` or `season`, and subset category.
 #'           If `NULL`, combinations are auto-generated from available `.gpkg` files.
 #' @param dsn Character. Path to the directory containing `.gpkg` files.
 #' @param output_dir Character. Directory where output rasters should be saved.
-#' @param cellsize Numeric. Size of raster grid cells.
-#' @param ais_mask Spatial object. Study area mask used for rasterization.
-#' @param land_mask Spatial object. Land mask used for rasterization.
-#' @param timescale Character. Either `"monthly"` or `"seasonal"`. Controls the temporal resolution of outputs.
-#' @param subset Character. Column to subset data by, e.g., `"ship_type"` or `"meta_type"`.
+#' @param cellsize Numeric. Resolution of the output raster grid (in meters).
+#' @param ais_mask A `terra` raster object used as the extent and mask template.
+#' @param land_mask A `terra` raster object used to mask out land.
+#' @param timescale Character. `"monthly"` or `"seasonal"`. Controls temporal grouping.
+#' @param subset Character. `"ship_type"` or `"meta_type"`. Determines category breakdown.
 #'
-#' @return Raster `.tif` files saved to the `output_dir`.
+#' @return Raster `.tif` files written to disk in `output_dir`.
 #' @export
 rasterize_ais <- function(df = NULL,
                           dsn,
@@ -678,30 +704,28 @@ rasterize_ais <- function(df = NULL,
   timescale <- match.arg(timescale)
   subset <- match.arg(subset)
   
+  # Define expected groups
+  expected_types <- if (subset == "meta_type") {
+    c("NA", "Intracoupled", "Pericoupled", "Telecoupled", "Spillover")
+  } else {
+    c("Cargo", "Fishing", "Military", "Other", "Recreation", "Tanker", "TugTow", "Unknown")
+  }
+  
   # Generate df if NULL
   if (is.null(df)) {
     files <- list.files(dsn, pattern = "\\.gpkg$", full.names = FALSE)
     year <- str_extract(files, "\\d{4}")
     month <- str_extract(files, "_(\\d{2})_") |> str_remove_all("_")
-
-    sample_file <- list.files(dsn, pattern = "\\.gpkg$", full.names = TRUE)[1]
-    sample_data <- suppressMessages(st_read(sample_file, quiet = TRUE))
-
-    if (!subset %in% names(sample_data)) {
-      stop(paste("Subset column", subset, "not found in sample data"))
-    }
-
-    subset_values <- unique(sample_data[[subset]])
+    
     year <- unique(year[!is.na(year)])
-
     if (timescale == "monthly") {
       month <- unique(month[!is.na(month)])
-      df <- expand.grid(month = month, year = year, stringsAsFactors = FALSE)
+      df <- expand.grid(set = expected_types, month = month, year = year, stringsAsFactors = FALSE)
       names(df) <- c(subset, "month", "year")
     } else {
       season_levels <- c("winter", "spring", "summer", "fall")
-      df <- expand.grid(season = season_levels, year = year, stringsAsFactors = FALSE)
-      names(df) <- c("season", "year")
+      df <- expand.grid(set = expected_types, season = season_levels, year = year, stringsAsFactors = FALSE)
+      names(df) <- c(subset, "season", "year")
     }
   }
   
@@ -709,10 +733,11 @@ rasterize_ais <- function(df = NULL,
     d <- df[i, ]
     print(d)
     
+    # Define file list
     if (timescale == "monthly") {
       filelist <- intersect(
         list.files(dsn, pattern = as.character(d$year), full.names = TRUE),
-        list.files(dsn, pattern = paste0("_", sprintf("%02d", as.integer(as.character((d$month)))), "_"), full.names = TRUE)
+        list.files(dsn, pattern = paste0("_", sprintf("%02d", as.integer(as.character(d$month))), "_"), full.names = TRUE)
       )
       files <- filelist[grepl(".gpkg", filelist)]
       
@@ -722,15 +747,12 @@ rasterize_ais <- function(df = NULL,
         this_year <- as.numeric(as.character(d$year[1]))
         
         files_prev <- list.files(dsn, pattern = as.character(prev_year), full.names = TRUE)
-
         files_this <- list.files(dsn, pattern = as.character(this_year), full.names = TRUE)
         
         files_dec <- grep("_12_", files_prev, value = TRUE)
-        
         files_jan_feb <- grep("_01_|_02_", files_this, value = TRUE)
         
         files <- c(files_dec, files_jan_feb)
-        
       } else {
         season_pattern <- switch(tolower(d$season),
                                  "spring" = "_03_|_04_|_05_",
@@ -743,49 +765,73 @@ rasterize_ais <- function(df = NULL,
       }
     }
     
+    layer_suffix <- if (timescale == "monthly") {
+      paste0("_", d$year, "_", sprintf("%02d", as.integer(as.character(d$month))))
+    } else {
+      paste0("_", d$year, "_", d$season)
+    }
+    output_suffix <- paste0(layer_suffix, ".tif")
+    
+    # If no files found, create blank raster for all types
     if (length(files) == 0) {
-      message(paste0("No data for ", d[[subset]], " in ", timescale, " of ", d$year))
+      message(paste0("No data files for ", timescale, ": ", layer_suffix, " — writing blank rasters"))
+      for (group_val in expected_types) {
+        layer_name <- paste0(group_val, layer_suffix)
+        output_name <- file.path(output_dir, paste0(group_val, output_suffix))
+        make_blank_raster(cellsize, ais_mask, land_mask, output_name, layer_name)
+      }
       next
     }
     
-    print("Input files:")
-    print(files)
-        
-    ships <- lapply(files, st_read, quiet = TRUE) %>% do.call(bind_rows, .)
-
-    if (nrow(ships) > 0) {
-      layer_suffix <- if (timescale == "monthly") {
-        paste0("_", d$year, "_", sprintf("%02d", as.integer(as.character(d$month))))
-      } else {
-        paste0("_", d$year, "_", d$season)
+    # Try reading the files
+    ships <- tryCatch({
+      lapply(files, st_read, quiet = TRUE) %>% do.call(bind_rows, .)
+    }, error = function(e) {
+      warning(paste("Error reading files:", e$message))
+      return(NULL)
+    })
+    
+    if (is.null(ships) || nrow(ships) == 0 || !(subset %in% names(ships))) {
+      message(paste("No ship data or subset column missing — writing blanks for", layer_suffix))
+      for (group_val in expected_types) {
+        layer_name <- paste0(group_val, layer_suffix)
+        output_name <- file.path(output_dir, paste0(group_val, output_suffix))
+        make_blank_raster(cellsize, ais_mask, land_mask, output_name, layer_name)
       }
-      output_suffix <- paste0(layer_suffix, ".tif")
-
-      if (subset %in% names(ships)) {
-        nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE)
-
-        for (j in 1:nrow(nested)) {
-          group_val <- as.character(nested[[subset]][[j]])
-          layer_name <- paste0(group_val, layer_suffix)
-          output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-
-          print(output_name)
-
-          make_ais_raster(
-            ships = nested$data[[j]],
-            cellsize = cellsize,
-            ais_mask = ais_mask,
-            land_mask = land_mask,
-            output_name = output_name,
-            layer_name = layer_name
-          )
-        }
-      } else {
-        warning(paste("Subset column", subset, "not found in ship data"))
-      }
+      next
+    }
+    
+    # Nest by group
+    nested <- ships %>% nest_by(across(all_of(subset)), .keep = TRUE)
+    present_groups <- as.character(nested[[subset]])
+    missing_groups <- setdiff(expected_types, present_groups)
+    
+    # Rasterize present groups
+    for (j in 1:nrow(nested)) {
+      group_val <- as.character(nested[[subset]][[j]])
+      layer_name <- paste0(group_val, layer_suffix)
+      output_name <- file.path(output_dir, paste0(group_val, output_suffix))
+      
+      make_ais_raster(
+        ships = nested$data[[j]],
+        cellsize = cellsize,
+        ais_mask = ais_mask,
+        land_mask = land_mask,
+        output_name = output_name,
+        layer_name = layer_name
+      )
+    }
+    
+    # Create blanks for missing groups
+    for (group_val in missing_groups) {
+      layer_name <- paste0(group_val, layer_suffix)
+      output_name <- file.path(output_dir, paste0(group_val, output_suffix))
+      make_blank_raster(cellsize, ais_mask, land_mask, output_name, layer_name)
     }
   }
 }
+
+
 
 
 ##############################################################################
