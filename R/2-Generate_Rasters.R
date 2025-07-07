@@ -39,7 +39,7 @@ study <- st_read("../Data_Raw/StudyArea_ModifiedBerkman.shp") %>%
 # Specify cell size 
 cellsize <- 4000
 
-# Derive all combinations of output rasters 
+# Derive all combinations of output rasters
 # yr <- 2016
 # month <- 02
 args <- commandArgs(trailingOnly = TRUE)
