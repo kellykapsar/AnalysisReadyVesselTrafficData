@@ -823,6 +823,101 @@ rasterize_ais <- function(df = NULL,
 }
 
 
+##############################################################################
+######################### PLACE TESSELATION FUNCTION ######################### 
+##############################################################################
+#' Aggregate Raster Files by Pattern, Year, and/or Month
+#'
+#' This function reads `.tif` raster files from a folder and aggregates them by
+#' specified grouping criteria: movement pattern, year, and/or month. It supports
+#' optional filtering by specific target months and outputs the resulting summary
+#' rasters to a specified folder.
+#'
+#' @param folder Character. Path to the folder containing raster files. File names
+#'   must follow the pattern: `"movementPattern_yyyy_mm.tif"`.
+#' @param group_var Character vector. One or more of `"pattern"`, `"year"`, or `"month"`
+#'   indicating how to group the input rasters before aggregation.
+#' @param target_months Optional integer or character vector. Specifies which months to
+#'   include (e.g., `c(6, 7, 8)` for summer). If `NULL`, all months are used.
+#' @param output_folder Character. Path to the folder where output rasters will be saved.
+#'   Defaults to the input folder.
+#'
+#' @return A character vector of file paths to the aggregated raster output files.
+#' @import terra
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' # Aggregate by movement pattern and year
+#' aggregate_rasters("data/rasters", group_var = c("pattern", "year"))
+#'
+#' # Aggregate by pattern and month
+#' aggregate_rasters("data/rasters", group_var = c("pattern", "month"))
+#'
+#' # Aggregate summer months by pattern and year
+#' aggregate_rasters("data/rasters", group_var = c("pattern", "year"), target_months = c(6, 7, 8))
+#' }
+aggregate_rasters <- function(folder, 
+                              group_var = c("pattern", "year", "month"), 
+                              target_months = NULL, 
+                              output_folder = folder) {
+  # Ensure folder paths end with "/"
+  folder <- normalizePath(folder, mustWork = TRUE)
+  output_folder <- normalizePath(output_folder, mustWork = FALSE)
+  if (!dir.exists(output_folder)) dir.create(output_folder, recursive = TRUE)
+  
+  # List and parse file metadata
+  files <- list.files(folder, pattern = "\\.tif$", full.names = TRUE)
+  file_info <- data.frame(
+    filepath = files,
+    filename = basename(files),
+    stringsAsFactors = FALSE
+  )
+  
+  # Extract pattern, year, month using regex
+  file_info$pattern <- sub("^(.*?)_\\d{4}_\\d{2}\\.tif$", "\\1", file_info$filename)
+  file_info$year    <- sub("^.*?_(\\d{4})_\\d{2}\\.tif$", "\\1", file_info$filename)
+  file_info$month   <- sub("^.*?_(\\d{2})\\.tif$", "\\1", file_info$filename)
+  
+  # Filter to specific months if provided
+  if (!is.null(target_months)) {
+    target_months <- sprintf("%02d", as.integer(target_months))  # ensure two-digit format
+    file_info <- file_info[file_info$month %in% target_months, ]
+  }
+  
+  # Create grouping key
+  file_info$group_key <- apply(file_info[, group_var, drop = FALSE], 1, paste, collapse = "_")
+  
+  # Split by group
+  file_groups <- split(file_info, file_info$group_key)
+  
+  # Process and write rasters
+  output_files <- c()
+  for (group_key in names(file_groups)) {
+    group <- file_groups[[group_key]]
+    rasters <- lapply(group$filepath, rast)
+    stack <- do.call(c, rasters)
+    result <- app(stack, sum, na.rm = TRUE)
+    
+    # Build output filename
+    components <- strsplit(group_key, "_")[[1]]
+    name_parts <- list()
+    if ("pattern" %in% group_var) name_parts <- c(name_parts, components[1])
+    if ("year" %in% group_var)    name_parts <- c(name_parts, components[which(group_var == "year")])
+    if ("month" %in% group_var && is.null(target_months)) {
+      name_parts <- c(name_parts, components[which(group_var == "month")])
+    } else if (!is.null(target_months)) {
+      name_parts <- c(name_parts, paste0(target_months, collapse = ""))
+    }
+    output_name <- paste0(paste(name_parts, collapse = "_"), ".tif")
+    output_path <- file.path(output_folder, output_name)
+    
+    writeRaster(result, output_path, overwrite = TRUE)
+    output_files <- c(output_files, output_path)
+  }
+  
+  return(output_files)
+}
 
 
 ##############################################################################
