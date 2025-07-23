@@ -625,7 +625,7 @@ summarize_output_econ <- function(tracklines, vessel_summary){
 #'
 #' @return Writes the resulting raster to disk.
 #' @export
-make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name) {
+make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name, blank = FALSE) {
   library(maptools)
 
   moSHP <- as(ships, "Spatial")
@@ -635,12 +635,16 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
   allMask <- as.mask(extentAOI, eps = cellsize)
   moPXL <- pixellate.psp(moPSP, W = allMask)
   moRAST <- terra::rast(moPXL) / 1000
-  terra::crs(moRAST) <- AA
+  terra::crs(moRAST) <- "EPSG:3338"
 
+  if(blank == TRUE){
+    terra::values(moRAST) <- 0
+  }
+  
   rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
   rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
   names(rast_noland) <- layer_name
-
+  
   writeRaster(rast_noland, filename = output_name, overwrite=T)
 }
 
@@ -658,14 +662,14 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
 #'
 #' @return A blank raster is written to disk.
 #' @export
-make_blank_raster <- function(cellsize, ais_mask, land_mask, output_name, layer_name) {
-  blank <- terra::rast(ais_mask)
-  terra::res(blank) <- cellsize
-  terra::values(blank) <- 0
-  blank <- terra::mask(blank, land_mask, inverse = TRUE)
-  names(blank) <- layer_name
-  terra::writeRaster(blank, output_name, overwrite = TRUE)
-}
+# make_blank_raster <- function(cellsize, ais_mask, land_mask, output_name, layer_name) {
+#   blank <- terra::rast(ais_mask)
+#   terra::res(blank) <- cellsize
+#   terra::values(blank) <- 0
+#   blank <- terra::mask(blank, land_mask, inverse = TRUE)
+#   names(blank) <- layer_name
+#   terra::writeRaster(blank, output_name, overwrite = TRUE)
+# }
 
 
 #' Rasterize AIS Data by Timescale and Subset Category
@@ -786,7 +790,11 @@ rasterize_ais <- function(df = NULL,
       for (group_val in expected_types) {
         layer_name <- paste0(group_val, layer_suffix)
         output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-        make_blank_raster(cellsize, ais_mask, land_mask, output_name, layer_name)
+        
+        ships_fake <- matrix(c(0, 10, 246000, 247000), ncol=2)
+        ships_fake <- st_linestring(ships_pt) %>% st_sf(geometry = st_sfc(., crs = 3338))
+        
+        make_ais_raster(ships_fake, cellsize, ais_mask, land_mask, output_name, layer_name, blank = TRUE)
       }
       next
     }
@@ -817,14 +825,18 @@ rasterize_ais <- function(df = NULL,
     for (group_val in missing_groups) {
       layer_name <- paste0(group_val, layer_suffix)
       output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-      make_blank_raster(cellsize, ais_mask, land_mask, output_name, layer_name)
+      
+      ships_fake <- matrix(c(0, 10, 246000, 247000), ncol=2)
+      ships_fake <- st_linestring(ships_pt) %>% st_sf(geometry = st_sfc(., crs = 3338))
+      
+      make_ais_raster(ships_fake, cellsize, ais_mask, land_mask, output_name, layer_name, blank = T)
     }
   }
 }
 
 
 ##############################################################################
-######################### PLACE TESSELATION FUNCTION ######################### 
+######################### AGGREGATE RASTERS BY TYPE/TIMEFRAME ################ 
 ##############################################################################
 #' Aggregate Raster Files by Pattern, Year, and/or Month
 #'
@@ -1020,6 +1032,142 @@ split_overlapping_buffers <- function(pts, dist = 20000) {
   
   return(final_result_merged)
 }
+
+##############################################################################
+######################### 4D netCDF Creation Function ######################## 
+##############################################################################
+
+
+#' Export Monthly Ship Travel Data to NetCDF Files by Ship Type
+#'
+#' This function scans a folder of monthly raster `.tif` files representing ship travel distances
+#' (in kilometers) for different ship types and time periods. It groups the files by ship type and
+#' creates a separate CF-compliant NetCDF file for each type, containing a 3D array of values
+#' with dimensions: easting, northing, and time.
+#'
+#' @param folder Character. Path to the folder containing GeoTIFF raster files. Filenames must follow
+#'   the pattern `"ShipType_YYYY_MM.tif"` (e.g., `"Cargo_2015_01.tif"`).
+#' @param out_dir Character. Path to the output directory where NetCDF files will be saved.
+#'
+#' @return No return value. Writes one NetCDF file per ship type to the specified output directory.
+#'
+#' @details
+#' Each output NetCDF file includes:
+#' \itemize{
+#'   \item A 3D variable `ship_km_traveled` with dimensions:
+#'     \itemize{
+#'       \item `easting` (in meters, NAD83 / Alaska Albers - EPSG:3338)
+#'       \item `northing` (in meters)
+#'       \item `time` (in days since the first date in the dataset)
+#'     }
+#'   \item Metadata attributes for:
+#'     \itemize{
+#'       \item File title, projection, and data source
+#'       \item Creator name, email, and institution
+#'       \item Creation date and processing history
+#'     }
+#' }
+#'
+#' The raster cell values represent kilometers traveled by vessels of the given ship type during the specified month.
+#'
+#' @note This function assumes all rasters are aligned spatially (same extent, resolution, and CRS).
+#'
+#' @import terra
+#' @import ncdf4
+#' @importFrom stringr str_match
+#' @importFrom lubridate as_date
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' export_shiptype_netcdfs(
+#'   folder = "data/monthly_rasters",
+#'   out_dir = "output/ship_km_netcdfs"
+#' )
+#' }
+export_shiptype_netcdfs <- function(folder, out_dir) {
+library(terra)
+library(ncdf4)
+library(stringr)
+library(lubridate)
+
+tif_files <- list.files(folder, pattern = "\\.tif$", full.names = TRUE)
+meta <- str_match(basename(tif_files), "^(.*?)_(\\d{4})_(\\d{2})\\.tif$")
+
+df <- data.frame(
+  file = tif_files,
+  ship_type = meta[, 2],
+  year = as.integer(meta[, 3]),
+  month = as.integer(meta[, 4]),
+  stringsAsFactors = FALSE
+)
+df$date <- as.Date(sprintf("%04d-%02d-01", df$year, df$month))
+
+ship_types <- unique(df$ship_type)
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+for (ship in ship_types) {
+  message("Processing: ", ship)
+  
+  df_sub <- df[df$ship_type == ship, ]
+  df_sub <- df_sub[order(df_sub$date), ]
+  dates <- df_sub$date
+  time_units <- paste0("days since ", min(dates))
+  time_vals <- as.numeric(difftime(dates, min(dates), units = "days"))
+  
+  # Load rasters and build [easting, northing, time] array
+  rasters <- lapply(df_sub$file, rast)
+  r_stack <- rast(rasters[1:4])
+  
+  r_mat <- lapply(rasters, function(r) as.matrix(r, wide = TRUE))
+  array_data <- simplify2array(r_mat)
+  
+  # Get spatial grid
+  r0 <- rasters[[1]]
+  easting <- xFromCol(r0, 1:ncol(r0))
+  northing <- yFromRow(r0, 1:nrow(r0))
+  
+  # Define NetCDF dimensions (projected)
+  dim_easting <- ncdim_def("easting", "meters", easting)
+  dim_northing <- ncdim_def("northing", "meters", northing)
+  dim_time <- ncdim_def("time", time_units, time_vals, unlim = TRUE)
+  
+  # Define variable
+  var_def <- ncvar_def(
+    name = "ship_km_traveled",
+    units = "kilometers",
+    dim = list(dim_easting, dim_northing, dim_time),
+    missval = NA,
+    longname = paste("Monthly distance traveled (km) by", ship, "ships"),
+    prec = "float"
+  )
+  
+  # Create and write NetCDF
+  outfile <- file.path(out_dir, paste0(ship, "_ship_km_traveled.nc"))
+  nc <- nc_create(outfile, vars = var_def)
+  ncvar_put(nc, var_def, array_data)
+  
+  # Add metadata
+  ncatt_put(nc, 0, "title", paste("North Pacific and Arctic Marine Traffic Dataset (2015 - 2024): ", ship))
+  ncatt_put(nc, 0, "creator_name", "Kelly Kapsar")
+  ncatt_put(nc, 0, "creator_email", "kelly.kapsar@gmial.com")
+  ncatt_put(nc, 0, "institution", "Michigan State University")
+  ncatt_put(nc, 0, "project", "Arctic Telecoupling Project")
+  ncatt_put(nc, 0, "acknowledgment", "Funded by NSF Grant #2033507")
+  ncatt_put(nc, 0, "source", "Raw AIS signals were purchased from Spire Global (formerly exactEarth).")
+  ncatt_put(nc, 0, "history", paste("Created on", Sys.Date()))
+  ncatt_put(nc, 0, "ship_type", ship)
+  ncatt_put(nc, 0, "projection", "EPSG:3338 (NAD83 / Alaska Albers)")
+  ncatt_put(nc, 0, "Conventions", "CF-1.8")
+  
+  nc_close(nc)
+  message("✅ Written: ", outfile)
+}
+
+message("All NetCDFs written to: ", out_dir)
+}
+
+
 
 ##############################################################################
 ######################### POST-PROCESSING FUNCTIONS ######################### 

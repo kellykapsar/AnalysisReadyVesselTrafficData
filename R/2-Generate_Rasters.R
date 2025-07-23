@@ -20,7 +20,7 @@ source("./1-2-AnalysisFunctions.R")
 AA <- "+proj=aea +lat_1=55 +lat_2=65 +lat_0=50 +lon_0=-154 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs"
 
 # Destination to save files
-output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Monthly_Meta/")
+output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Monthly_ShipType/")
 # output_dir <- paste0("/mnt/research/CSIS/AIS/Data_Processed_Metacoupling/Raster_Seasonal_Meta/")
 
 # Source of vector files
@@ -61,7 +61,7 @@ rasterize_ais(df,
   ais_mask, 
   land_mask, 
   timescale = "monthly", 
-  subset = "meta_type")
+  subset = "ship_type")
 
 end <- proc.time()
 elapsed_sec <- end["elapsed"]
