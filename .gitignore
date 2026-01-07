@@ -52,5 +52,12 @@ rsconnect/
 
 # Folders for analysis (too big for GitHub)
 /Data_Processed
+/Data_Processed_Summer2025
 /Data_Raw
 /Images
+
+
+# ignore slurm outputs and other slurm files 
+*.SLURMout
+*.out
+job_list.txt
