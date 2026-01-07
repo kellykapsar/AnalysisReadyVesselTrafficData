@@ -18,6 +18,10 @@
 #' @param gates sf object. A spatial object representing the gates or other locations of interest for the study.
 #' @param places sf object. A spatial object with places of interest (e.g., ports, communities).
 #' @param chunks Logical. If TRUE, splits output shapefiles into chunks; if FALSE, writes the entire dataset in a single file. Default is FALSE.
+#' @param monthly_output Logical. If TRUE, splits output shapefiles into individual files for each month x year x type combination. 
+#' @param econ Logical. If TRUE, generates vessel histories and summaries for only vessels that stop at economic places of interest. 
+#'
+#'
 #'
 #' @return NULL. This function performs analysis and writes output files but does not return a value.
 #' @export
@@ -25,38 +29,51 @@
 #' @examples
 #' # Example usage
 #' voyage_analysis_master("Tanker", "path/to/data", "path/to/save", study_area_sf, ais_bounds_sf, gates_sf, places_sf)
-metacoupling_and_place_visits_analysis <- function(vessel_type, dsn, savedsn, study, aisbounds, gates, places, monthly_output = FALSE, chunks = FALSE) {
+metacoupling_and_place_visits_analysis <- function(vessel_type, dsn, savedsn, study, aisbounds, gates, places, monthly_output = FALSE, chunks = FALSE, econ = TRUE) {
   print(paste0("BEGIN PROCESSING: ", vessel_type))
   
   # Step 1: Load vessel shapefiles
   tracklines <- load_vessel_shapefiles(dsn, vessel_type)
-  print(paste0(vessel_type, ": step 1 complete"))
+  print(paste0(vessel_type, ": Loaded"))
   
   # Step 2: Remove tracklines outside the AIS boundary
   tracklines <- tracklines[st_intersects(tracklines, aisbounds, sparse = FALSE), ]
-  print(paste0(vessel_type, ": step 2 complete"))
+  print(paste0(vessel_type, ": Removed tracklines outside boundary"))
   
   # Step 3: Annotate tracklines with relevant intersections (study, gates)
   # and with places that the vessel stops 
   tracklines <- annotate_tracklines(tracklines, study, gates, eez, places)
   tracklines <- identify_stops(tracklines, places)
-  print(paste0(vessel_type, ": step 3 complete"))
+  print(paste0(vessel_type, ": Tracklines annotated"))
   
   # Step 4: Summarize voyages by vessel and year and classify metacoupling type
   vessel_summary <- summarize_voyages(tracklines, places, study) %>% 
     classify_meta_type()
   
+  summarydsn <- paste0(savedsn, "Vessel_Summaries/")
+  if(!dir.exists(summarydsn)){dir.create(summarydsn)}
   write.csv(vessel_summary, 
-            paste0("../Data_Processed/Vessel_Summaries/vessel_summaries", vessel_type, ".csv"))
+            paste0(summarydsn, "vessel_summaries_", vessel_type, ".csv"))
+  print(paste0(vessel_type, ": Generated vessel summaries"))
   
-  print(paste0(vessel_type, ": step 4 complete"))
+  # Step 5: Generate subset of vessel histories and summaries for vessels that travel to economic areas of interest
+  if(econ == TRUE){
+    econdsn <- paste0(savedsn, "Econ/")
+    if(!dir.exists(econdsn)){dir.create(econdsn)}
+    
+    summarize_output_econ(tracklines, vessel_summary, econdsn)
+    print(paste0(vessel_type, ": Generated economic subset"))
+  }
   
   # Step 5: Clean up tracklines for writing shapefile
   tracklines_clean <- clean_tracklines_for_output(tracklines, vessel_summary, places, study)
-  print(paste0(vessel_type, ": step 5 complete"))
+  print(paste0(vessel_type, ": Tracklines cleaned"))
 
   # Step 9: Write output files (CSV and shapefiles)
-  write_output_files(tracklines_clean, savedsn, vessel_type, monthly_output, chunks)
+  vectordsn <- paste0(savedsn, "Vector_Vessels/")
+  if(!dir.exists(vectordsn)){dir.create(vectordsn)}
+  
+  write_output_files(tracklines_clean, vectordsn, vessel_type, monthly_output, chunks)
   return(tracklines_clean)
   print(paste0(vessel_type, ": COMPLETE"))
   
@@ -526,7 +543,7 @@ write_output_files <- function(tracklines, savedsn, vessel_type, monthly_output 
 ########################### ECON SUMMARY FUNCTIONS ########################### 
 ##############################################################################
 
-summarize_output_econ <- function(tracklines, vessel_summary){
+summarize_output_econ <- function(tracklines, vessel_summary, savedsn){
   # Filter to include only vessels that stop in one of the Econ locations in a given year
   econ_keys <- vessel_summary %>%
     filter(stop_econ == TRUE) %>%
@@ -541,8 +558,8 @@ summarize_output_econ <- function(tracklines, vessel_summary){
   
   vessel_history_econ <- create_place_visits_df(econ_tracklines)
   
-  write.csv(vessel_summary, paste0("../Data_Processed/Econ/vessel_summaries_econ_", vessel_type, ".csv"))
-  write.csv(vessel_history_econ, paste0("../Data_Processed/Econ/vessel_histories_econ_", vessel_type, ".csv"))
+  write.csv(vessel_summary, paste0(savedsn, "vessel_summaries_econ_", vessel_type, ".csv"))
+  write.csv(vessel_history_econ, paste0(savedsn, "vessel_histories_econ_", vessel_type, ".csv"))
   
   print(paste0(vessel_type, ": history and summary saved."))
 }
