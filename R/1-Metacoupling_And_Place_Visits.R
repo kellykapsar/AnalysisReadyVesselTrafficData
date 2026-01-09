@@ -1,7 +1,7 @@
 ###############################################################################
 # Script: voyage_creation_parallel.R
-# Author: [Your Name]
-# Date: [Date]
+# Author: Kelly Kapsar
+# Last updated: January 2026
 #
 # Purpose:
 # This script processes vessel AIS data to identify individual voyages, 
@@ -59,7 +59,7 @@ gates <- st_read("../Data_Raw/gates_innerbuffer_15km.shp")
 eez <- st_read("../Data_Raw/us_rus_boundaries.shp")
 
 # Read and buffer locations of interest (e.g., ports, communities)
-places <- st_read("../Data_Processed/Places/Pacific_Arctic_Places_And_Populations_20km_buffer_no_overlap.shp") 
+places <- st_read(paste0(savedsn, "/Places/Pacific_Arctic_Places_And_Populations_20km_buffer_no_overlap.shp")) 
 
 # Load arguments from sb file 
 args <- commandArgs(trailingOnly = TRUE)
