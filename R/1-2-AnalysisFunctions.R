@@ -644,6 +644,8 @@ summarize_output_econ <- function(tracklines, vessel_summary, vessel_type, saved
 #' @export
 make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, layer_name, blank = FALSE) {
   library(maptools)
+  library(sp)
+  library(sf)
 
   moSHP <- as(ships, "Spatial")
   moPSP <- as.psp(moSHP)
@@ -657,11 +659,11 @@ make_ais_raster <- function(ships, cellsize, ais_mask, land_mask, output_name, l
   if(blank == TRUE){
     terra::values(moRAST) <- 0
   }
-  
+
   rast <- terra::mask(x = moRAST, mask = ais_mask) %>% terra::crop(., ais_mask)
   rast_noland <- terra::mask(x = rast, mask = land_mask, inverse = TRUE, touches = FALSE)
   names(rast_noland) <- layer_name
-  
+
   writeRaster(rast_noland, filename = output_name, overwrite=T)
 }
 
@@ -827,7 +829,8 @@ rasterize_ais <- function(df = NULL,
       group_val <- as.character(nested[[subset]][[j]])
       layer_name <- paste0(group_val, layer_suffix)
       output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-      
+      print(paste0("RASTERIZING: ", output_name))
+
       make_ais_raster(
         ships = nested$data[[j]],
         cellsize = cellsize,
@@ -837,15 +840,15 @@ rasterize_ais <- function(df = NULL,
         layer_name = layer_name
       )
     }
-    
+
     # Create blanks for missing groups
     for (group_val in missing_groups) {
       layer_name <- paste0(group_val, layer_suffix)
       output_name <- file.path(output_dir, paste0(group_val, output_suffix))
-      
       ships_fake <- matrix(c(0, 10, 246000, 247000), ncol=2)
-      ships_fake <- st_linestring(ships_fake) %>% st_sf(geometry = st_sfc(., crs = 3338))
-      
+      ships_fake <- sf::st_sf(
+        geometry = sf::st_sfc(sf::st_linestring(ships_fake), crs = 3338)
+      )
       make_ais_raster(ships_fake, cellsize, ais_mask, land_mask, output_name, layer_name, blank = T)
     }
   }
