@@ -61,7 +61,7 @@ metacoupling_and_place_visits_analysis <- function(vessel_type, dsn, savedsn, st
     econdsn <- paste0(savedsn, "Econ/")
     if(!dir.exists(econdsn)){dir.create(econdsn)}
     
-    summarize_output_econ(tracklines, vessel_summary, econdsn)
+    summarize_output_econ(tracklines, vessel_summary, vessel_type, econdsn)
     print(paste0(vessel_type, ": Generated economic subset"))
   }
   
@@ -543,7 +543,7 @@ write_output_files <- function(tracklines, savedsn, vessel_type, monthly_output 
 ########################### ECON SUMMARY FUNCTIONS ########################### 
 ##############################################################################
 
-summarize_output_econ <- function(tracklines, vessel_summary, savedsn){
+summarize_output_econ <- function(tracklines, vessel_summary, vessel_type, savedsn){
   # Filter to include only vessels that stop in one of the Econ locations in a given year
   econ_keys <- vessel_summary %>%
     filter(stop_econ == TRUE) %>%
@@ -809,7 +809,7 @@ rasterize_ais <- function(df = NULL,
         output_name <- file.path(output_dir, paste0(group_val, output_suffix))
         
         ships_fake <- matrix(c(0, 10, 246000, 247000), ncol=2)
-        ships_fake <- st_linestring(ships_pt) %>% st_sf(geometry = st_sfc(., crs = 3338))
+        ships_fake <- st_linestring(ships_fake) %>% st_sf(geometry = st_sfc(., crs = 3338))
         
         make_ais_raster(ships_fake, cellsize, ais_mask, land_mask, output_name, layer_name, blank = TRUE)
       }
@@ -844,7 +844,7 @@ rasterize_ais <- function(df = NULL,
       output_name <- file.path(output_dir, paste0(group_val, output_suffix))
       
       ships_fake <- matrix(c(0, 10, 246000, 247000), ncol=2)
-      ships_fake <- st_linestring(ships_pt) %>% st_sf(geometry = st_sfc(., crs = 3338))
+      ships_fake <- st_linestring(ships_fake) %>% st_sf(geometry = st_sfc(., crs = 3338))
       
       make_ais_raster(ships_fake, cellsize, ais_mask, land_mask, output_name, layer_name, blank = T)
     }
